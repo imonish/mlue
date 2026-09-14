@@ -1,2 +1,21 @@
-duckdb
-pandas
+duckdb              → SQL analytics
+pandas              → data processing
+openpyxl            → Excel/XLSX uploads
+
+transformers        → Qwen 3B
+accelerate          → model device management
+bitsandbytes        → 4-bit Qwen model
+safetensors         → model weights
+
+fastapi             → backend API
+uvicorn             → run FastAPI server
+python-multipart    → CSV/XLSX file uploads
+
+pydantic             → API request/response validation
+
+Install them
+
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+
+verfiy with 
+.\.venv\Scripts\python.exe -c "import duckdb, pandas, transformers, fastapi, uvicorn, bitsandbytes; print('All packages OK')"

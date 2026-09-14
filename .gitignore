@@ -1,0 +1,22 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# AI models
+Qwen2.5-3B-Instruct-bnb-4bit/
+*.safetensors
+*.bin
+*.pt
+*.pth
+*.gguf
+
+# Database
+*.duckdb
+*.db
+
+# Environment/secrets
+.env
+
+# Large datasets
+data/*.csv

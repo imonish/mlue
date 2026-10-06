@@ -8,9 +8,9 @@ from transformers import AutoTokenizer, AutoModelForCausalLM
 # CONFIG
 # ============================================================
 
-MODEL_PATH = r"C:\Users\imoni\models\Qwen2.5-3B-Instruct"
+MODEL_PATH = r"C:\Users\moni2\Documents\mlue\Qwen2.5-3B-Instruct-bnb-4bit"
 
-CSV_PATH = r"C:\Users\imoni\OneDrive\Documents\projects\mlue\data\Amazon Sale Report.csv"
+CSV_PATH = r"C:\Users\moni2\Documents\mlue\data\kaggle_sales.csv"
 
 DATABASE_PATH = "analytics.duckdb"
 
@@ -60,6 +60,58 @@ def get_database():
 
 
 # ============================================================
+# VALUE LOOKUP
+# ============================================================
+
+def get_distinct_values(column_name, limit=100):
+
+    conn = get_database()
+
+    try:
+
+        query = f'''
+            SELECT DISTINCT "{column_name}"
+            FROM "{TABLE_NAME}"
+            WHERE "{column_name}" IS NOT NULL
+            LIMIT {limit}
+        '''
+
+        result = conn.execute(query).fetchall()
+
+        return [row[0] for row in result]
+
+    finally:
+
+        conn.close()
+
+
+def find_matching_value(column_name, user_value):
+
+    conn = get_database()
+
+    try:
+
+        query = f'''
+            SELECT DISTINCT "{column_name}"
+            FROM "{TABLE_NAME}"
+            WHERE LOWER(CAST("{column_name}" AS VARCHAR))
+                  = LOWER(?)
+            LIMIT 1
+        '''
+
+        result = conn.execute(
+            query,
+            [user_value]
+        ).fetchone()
+
+        return result[0] if result else None
+
+    finally:
+
+        conn.close()
+
+
+# ============================================================
 # GET DATABASE SCHEMA
 # ============================================================
 
@@ -103,7 +155,6 @@ def get_schema_text():
 def validate_sql(sql):
 
     if not sql:
-
         return False, "Empty SQL query."
 
     # --------------------------------------------------------
@@ -219,6 +270,29 @@ def generate_sql(question):
     # --------------------------------------------------------
 
     system_prompt = f"""
+
+IMPORTANT:
+
+You are NOT an answer-generating assistant.
+
+Your ONLY job is to generate executable DuckDB SQL.
+
+NEVER explain the dataset.
+NEVER describe columns in natural language.
+NEVER answer the user's question directly.
+NEVER output Markdown.
+NEVER output explanations.
+NEVER output headings.
+
+Your response MUST contain ONLY one SQL query.
+
+The query MUST start with SELECT or WITH.
+
+If the user asks "Describe the dataset", do NOT write a textual description.
+
+Generate SQL that can retrieve useful dataset statistics instead.
+
+
 You are a SQL Business Analytics Agent.
 
 You generate DuckDB SQL queries.
@@ -226,6 +300,7 @@ You generate DuckDB SQL queries.
 The database contains one table:
 
 {TABLE_NAME}
+
 
 Available columns:
 
@@ -241,9 +316,13 @@ characters MUST be surrounded by double quotes.
 Examples:
 
 "Order ID"
+
 "Sales Channel"
+
 "ship-state"
+
 "ship-city"
+
 "Courier Status"
 
 Normal column names may also be quoted.
@@ -252,7 +331,7 @@ Normal column names may also be quoted.
 SQL RULES
 =========
 
-1. Use ONLY the table `{TABLE_NAME}`.
+1. Use ONLY the table "{TABLE_NAME}".
 
 2. Use ONLY columns from the provided schema.
 
@@ -315,18 +394,19 @@ SQL RULES
 EXAMPLES
 ========
 
-Question:
-What is total sales?
 
-SQL:
+User: What is total sales?
+
+Output:
+
 SELECT SUM("Amount") AS total_sales
 FROM dataset;
 
 
-Question:
-Which state has the highest sales?
+User: Which state has the highest sales?
 
-SQL:
+Output:
+
 SELECT
     "ship-state",
     SUM("Amount") AS total_sales
@@ -336,10 +416,10 @@ ORDER BY total_sales DESC
 LIMIT 1;
 
 
-Question:
-What are the top 5 categories by sales?
+User: What are the top 5 categories by sales?
 
-SQL:
+Output:
+
 SELECT
     "Category",
     SUM("Amount") AS total_sales
@@ -349,12 +429,28 @@ ORDER BY total_sales DESC
 LIMIT 5;
 
 
-Question:
-How many orders are there?
+User: How many orders are there?
 
-SQL:
+Output:
+
 SELECT COUNT(*) AS total_orders
 FROM dataset;
+
+
+User: Describe the dataset
+
+Output:
+
+SELECT
+    COUNT(*) AS total_rows,
+    COUNT(DISTINCT "Order ID") AS unique_orders,
+    COUNT(DISTINCT "Category") AS unique_categories,
+    COUNT(DISTINCT "ship-state") AS unique_states,
+    MIN("Date") AS earliest_date,
+    MAX("Date") AS latest_date,
+    SUM("Amount") AS total_sales
+FROM dataset;
+
 """
 
     # --------------------------------------------------------
@@ -417,9 +513,7 @@ FROM dataset;
     # REMOVE INPUT TOKENS
     # --------------------------------------------------------
 
-    generated_tokens = outputs[
-        0
-    ][
+    generated_tokens = outputs[0][
         inputs["input_ids"].shape[-1]:
     ]
 
@@ -431,6 +525,15 @@ FROM dataset;
         generated_tokens,
         skip_special_tokens=True
     )
+
+    # --------------------------------------------------------
+    # DEBUG: SHOW RAW QWEN RESPONSE
+    # --------------------------------------------------------
+
+    print("\nRAW QWEN RESPONSE:")
+    print("--------------------------------")
+    print(response)
+    print("--------------------------------")
 
     # --------------------------------------------------------
     # VALIDATE GENERATED SQL
@@ -559,7 +662,6 @@ Return ONLY SQL.
                 checked_sql
             )
 
-            # Successful query
             return (
                 checked_sql,
                 columns,
@@ -628,7 +730,7 @@ Generate a corrected DuckDB SQL query.
 RULES
 =====
 
-1. Use ONLY the `{TABLE_NAME}` table.
+1. Use ONLY the "{TABLE_NAME}" table.
 
 2. Use ONLY columns from the provided schema.
 
@@ -841,6 +943,7 @@ Return ONLY SQL.
             # ------------------------------------------------
 
             return {
+
                 "user_query": question,
 
                 "generated_sql": checked_sql,
@@ -906,10 +1009,11 @@ TASK
 
 Generate a corrected DuckDB SQL query.
 
+
 RULES
 =====
 
-1. Use ONLY the `{TABLE_NAME}` table.
+1. Use ONLY the "{TABLE_NAME}" table.
 
 2. Use ONLY columns from the provided schema.
 
@@ -974,6 +1078,7 @@ RULES
     # --------------------------------------------------------
 
     return {
+
         "user_query": question,
 
         "generated_sql": sql,
@@ -1095,6 +1200,53 @@ if __name__ == "__main__":
         print(error)
 
         raise SystemExit(1)
+
+    # --------------------------------------------------------
+    # TEST VALUE LOOKUP
+    # --------------------------------------------------------
+
+    print(
+        "\nTesting distinct values for ship-state..."
+    )
+
+    try:
+
+        values = get_distinct_values(
+            "ship-state"
+        )
+
+        print(values)
+
+    except Exception as error:
+
+        print(
+            "\nVALUE LOOKUP ERROR:"
+        )
+
+        print(error)
+
+    print(
+        "\nTesting case-insensitive value lookup..."
+    )
+
+    try:
+
+        result = find_matching_value(
+            "ship-state",
+            "Maharashtra"
+        )
+
+        print(
+            f"Maharashtra -> {result}"
+        )
+
+    except Exception as error:
+
+        print(
+            "\nMATCHING VALUE ERROR:"
+        )
+
+        print(error)
 
     print(
         "\nAgent ready."

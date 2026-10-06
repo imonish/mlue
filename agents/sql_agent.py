@@ -8,9 +8,9 @@ from transformers import AutoTokenizer, AutoModelForCausalLM
 # CONFIG
 # ============================================================
 
-MODEL_PATH = r"C:\Users\moni2\Documents\models\Qwen2.5-3B-Instruct-bnb-4bit"
+MODEL_PATH = r"C:\Users\imoni\models\Qwen2.5-3B-Instruct"
 
-CSV_PATH = "data/kaggle_sales.csv"
+CSV_PATH = r"C:\Users\imoni\OneDrive\Documents\projects\mlue\data\Amazon Sale Report.csv"
 
 DATABASE_PATH = "analytics.duckdb"
 
@@ -103,6 +103,7 @@ def get_schema_text():
 def validate_sql(sql):
 
     if not sql:
+
         return False, "Empty SQL query."
 
     # --------------------------------------------------------
@@ -475,7 +476,7 @@ def execute_sql(sql):
 
 
 # ============================================================
-# RUN AGENT WITH AUTOMATIC RETRY
+# RUN AGENT
 # ============================================================
 
 def run_agent(question):
@@ -698,6 +699,299 @@ RULES
 
 
 # ============================================================
+# LANGGRAPH SQL AGENT NODE
+# ============================================================
+
+def run_sql_agent(state):
+
+    # --------------------------------------------------------
+    # Get question from LangGraph state
+    # --------------------------------------------------------
+
+    question = state["user_query"]
+
+    print("\n========================================")
+    print("          LANGGRAPH SQL AGENT")
+    print("========================================")
+
+    print(
+        f"\nUser Question: {question}"
+    )
+
+    # --------------------------------------------------------
+    # Get schema
+    # --------------------------------------------------------
+
+    print(
+        "\nGetting database schema..."
+    )
+
+    schema_text = get_schema_text()
+
+    # --------------------------------------------------------
+    # Generate initial SQL
+    # --------------------------------------------------------
+
+    print(
+        "\nQwen is generating SQL..."
+    )
+
+    sql = generate_sql(question)
+
+    # --------------------------------------------------------
+    # Maximum 3 attempts
+    # --------------------------------------------------------
+
+    for attempt in range(3):
+
+        print(
+            f"\nSQL Attempt {attempt + 1}/3"
+        )
+
+        print(
+            "--------------------------------"
+        )
+
+        print(sql)
+
+        print(
+            "--------------------------------"
+        )
+
+        # ----------------------------------------------------
+        # Validate
+        # ----------------------------------------------------
+
+        valid, checked_sql = validate_sql(
+            sql
+        )
+
+        if not valid:
+
+            print(
+                "\nValidation failed:"
+            )
+
+            print(
+                checked_sql
+            )
+
+            # ------------------------------------------------
+            # Ask Qwen to fix the SQL
+            # ------------------------------------------------
+
+            correction_question = f"""
+User question:
+
+{question}
+
+Previous SQL:
+
+{sql}
+
+Validation error:
+
+{checked_sql}
+
+Generate a corrected DuckDB SELECT query.
+
+Use ONLY the provided database schema.
+
+Return ONLY SQL.
+"""
+
+            try:
+
+                sql = generate_sql(
+                    correction_question
+                )
+
+                continue
+
+            except Exception as error:
+
+                print(
+                    "\nCorrection generation failed:"
+                )
+
+                print(error)
+
+                continue
+
+        # ----------------------------------------------------
+        # Execute SQL
+        # ----------------------------------------------------
+
+        try:
+
+            columns, results = execute_sql(
+                checked_sql
+            )
+
+            print(
+                "\nSQL executed successfully."
+            )
+
+            print(
+                f"Rows returned: {len(results)}"
+            )
+
+            # ------------------------------------------------
+            # Return LangGraph state
+            # ------------------------------------------------
+
+            return {
+                "user_query": question,
+
+                "generated_sql": checked_sql,
+
+                "sql_result": results,
+
+                "sql_columns": columns,
+
+                "schema": schema_text,
+
+                "error": None
+            }
+
+        except Exception as error:
+
+            print(
+                "\nSQL execution error:"
+            )
+
+            print(error)
+
+            # ------------------------------------------------
+            # Ask Qwen to correct SQL
+            # ------------------------------------------------
+
+            correction_prompt = f"""
+The SQL query below failed to execute.
+
+USER QUESTION
+=============
+
+{question}
+
+
+DATABASE
+========
+
+Table:
+
+{TABLE_NAME}
+
+
+AVAILABLE COLUMNS
+=================
+
+{schema_text}
+
+
+FAILED SQL
+==========
+
+{checked_sql}
+
+
+DATABASE ERROR
+==============
+
+{error}
+
+
+TASK
+====
+
+Generate a corrected DuckDB SQL query.
+
+RULES
+=====
+
+1. Use ONLY the `{TABLE_NAME}` table.
+
+2. Use ONLY columns from the provided schema.
+
+3. Never invent columns.
+
+4. Never invent tables.
+
+5. Columns containing spaces or hyphens MUST
+   use double quotes.
+
+6. Generate valid DuckDB SQL.
+
+7. Only generate SELECT or WITH queries.
+
+8. Do not use INSERT.
+
+9. Do not use UPDATE.
+
+10. Do not use DELETE.
+
+11. Do not use DROP.
+
+12. Do not use ALTER.
+
+13. Do not use CREATE.
+
+14. Do not use TRUNCATE.
+
+15. Do not use REPLACE.
+
+16. Do not use GRANT.
+
+17. Do not use REVOKE.
+
+18. Return ONLY SQL.
+
+19. Do not use Markdown.
+
+20. Do not explain anything.
+"""
+
+            try:
+
+                sql = generate_sql(
+                    correction_prompt
+                )
+
+            except Exception as generation_error:
+
+                print(
+                    "\nCorrection generation error:"
+                )
+
+                print(
+                    generation_error
+                )
+
+                continue
+
+    # --------------------------------------------------------
+    # ALL RETRIES FAILED
+    # --------------------------------------------------------
+
+    return {
+        "user_query": question,
+
+        "generated_sql": sql,
+
+        "sql_result": [],
+
+        "sql_columns": [],
+
+        "schema": schema_text,
+
+        "error": (
+            "Could not generate and execute "
+            "valid SQL after 3 attempts."
+        )
+    }
+
+
+# ============================================================
 # DISPLAY RESULTS
 # ============================================================
 
@@ -755,7 +1049,7 @@ def display_schema():
 
 
 # ============================================================
-# MAIN
+# NORMAL SQL AGENT TEST
 # ============================================================
 
 if __name__ == "__main__":
@@ -846,7 +1140,7 @@ if __name__ == "__main__":
             continue
 
         # ----------------------------------------------------
-        # RUN AGENT
+        # RUN NORMAL AGENT
         # ----------------------------------------------------
 
         try:
